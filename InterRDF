@@ -1,0 +1,48 @@
+import MDAnalysis as mda
+from MDAnalysis.analysis.rdf import InterRDF
+import matplotlib.pyplot as plt
+import argparse
+
+def main():
+    parser = argparse.ArgumentParser(description='Calculate RDF using MDAnalysis.')
+    parser.add_argument('-t', '--topology', required=True, help='Topology file (.gro)')
+    parser.add_argument('-d', '--trajectory', required=True, help='Trajectory file (.dump)')
+    parser.add_argument('-s1', '--selection1', required=True, help='Atom selection for group 1 (e.g., "name O")')
+    parser.add_argument('-s2', '--selection2', required=True, help='Atom selection for group 2 (e.g., "name H")')
+    parser.add_argument('--bins', type=int, default=75, help='Number of bins for the RDF histogram')
+    parser.add_argument('--range', type=float, default=15.0, help='Maximum distance for the RDF calculation (Angstrom)')
+    parser.add_argument('--output', default='rdf_output.png', help='Filename for the output RDF plot')
+
+    args = parser.parse_args()
+
+    # Universeの作成
+    u = mda.Universe(args.topology, args.trajectory, topology_format='GRO', format='LAMMPSDUMP')
+
+    # 原子グループの選択
+    ag1 = u.select_atoms(args.selection1)
+    ag2 = u.select_atoms(args.selection2)
+
+    print(f"Selected {len(ag1)} atoms for group 1 and {len(ag2)} atoms for group 2.")
+
+    if len(ag1) == 0 or len(ag2) == 0:
+        print("Error: One of the selection groups is empty.")
+        return
+
+    # RDFの計算
+    rdf = InterRDF(ag1, ag2, nbins=args.bins, range=(0.0, args.range))
+    rdf.run()
+
+    # RDFのプロット
+    plt.figure()
+    plt.plot(rdf.bins, rdf.rdf)
+    plt.xlabel('Distance (Å)')
+    plt.ylabel('g(r)')
+    plt.title('Radial Distribution Function')
+    plt.grid(True)
+    plt.savefig(args.output)
+    plt.show()
+
+    print(f"RDF plot saved as {args.output}")
+
+if __name__ == '__main__':
+    main()
