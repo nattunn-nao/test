@@ -1,0 +1,126 @@
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
+from tkinterdnd2 import DND_FILES, TkinterDnD
+import os
+import subprocess
+
+class TrajectoryAnalysisGUI(TkinterDnD.Tk):
+    def __init__(self):
+        super().__init__()
+
+        self.title("トラジェクトリ解析ツール")
+        self.geometry("600x250")
+
+        # ファイルパスの格納用変数
+        self.topology_path = tk.StringVar()
+        self.trajectory_path = tk.StringVar()
+
+        # ファイル入力フレームの作成
+        self.create_file_input_frame()
+
+        # 解析ツール選択フレームの作成
+        self.create_tool_selection_frame()
+
+        # GOボタンの作成
+        self.create_go_button()
+
+        # ドラッグアンドドロップの設定
+        self.set_drag_and_drop()
+
+    def create_file_input_frame(self):
+        frame = ttk.LabelFrame(self, text="ファイルの指定")
+        frame.pack(fill="x", padx=10, pady=10)
+
+        # トポロジーファイル
+        ttk.Label(frame, text="トポロジーファイル:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        self.topo_entry = ttk.Entry(frame, textvariable=self.topology_path, width=50)
+        self.topo_entry.grid(row=0, column=1, padx=5, pady=5)
+        topo_button = ttk.Button(frame, text="参照", command=self.browse_topology)
+        topo_button.grid(row=0, column=2, padx=5, pady=5)
+
+        # トラジェクトリファイル
+        ttk.Label(frame, text="トラジェクトリファイル:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        self.traj_entry = ttk.Entry(frame, textvariable=self.trajectory_path, width=50)
+        self.traj_entry.grid(row=1, column=1, padx=5, pady=5)
+        traj_button = ttk.Button(frame, text="参照", command=self.browse_trajectory)
+        traj_button.grid(row=1, column=2, padx=5, pady=5)
+
+    def create_tool_selection_frame(self):
+        frame = ttk.LabelFrame(self, text="解析ツールの選択")
+        frame.pack(fill="x", padx=10, pady=10)
+
+        ttk.Label(frame, text="ツール:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        self.tool_var = tk.StringVar()
+        self.tool_combobox = ttk.Combobox(frame, textvariable=self.tool_var, state="readonly")
+        self.tool_combobox['values'] = self.get_tool_list()
+        self.tool_combobox.current(0)
+        self.tool_combobox.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+
+    def create_go_button(self):
+        self.go_button = ttk.Button(self, text="GO", command=self.run_selected_tool)
+        self.go_button.pack(pady=20)
+
+    def set_drag_and_drop(self):
+        # ドラッグアンドドロップの設定
+        self.drop_target_register(DND_FILES)
+        self.dnd_bind('<<Drop>>', self.handle_drop)
+
+    def handle_drop(self, event):
+        files = self.tk.splitlist(event.data)
+        for file_path in files:
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in ['.gro ']:
+                self.topology_path.set(file_path)
+            elif ext in ['.dump']:
+                self.trajectory_path.set(file_path)
+            else:
+                messagebox.showwarning("警告", f"サポートされていないファイル形式です: {file_path}")
+
+    def browse_topology(self):
+        filepath = filedialog.askopenfilename()
+        if filepath:
+            self.topology_path.set(filepath)
+
+    def browse_trajectory(self):
+        filepath = filedialog.askopenfilename()
+        if filepath:
+            self.trajectory_path.set(filepath)
+
+    def get_tool_list(self):
+        # ツールのリストを取得
+        # ここでツールのリストを定義します。ツールの追加はこのリストに名前を追加するだけで可能です。
+        return ['RDF', 'MSD', ]
+
+    def run_selected_tool(self):
+        topo = self.topology_path.get()
+        traj = self.trajectory_path.get()
+        tool = self.tool_var.get()
+
+        if not topo or not traj:
+            messagebox.showerror("エラー", "トポロジーファイルとトラジェクトリファイルを指定してください。")
+            return
+
+        # 選択されたツールに応じて、対応するスクリプトを実行します。
+        # 実際の解析ツールは別のスクリプトとして作成し、subprocessで呼び出すことができます。
+        if tool == 'RDF計算':
+            self.run_external_script('rdf_tool.py', topo, traj)
+        elif tool == 'MSD計算':
+            self.run_external_script('msd_tool.py', topo, traj)
+        else:
+            messagebox.showinfo("情報", f"{tool} はまだ実装されていません。")
+
+    def run_external_script(self, script_name, topo, traj):
+        # 別のスクリプトをsubprocessで実行
+        try:
+            subprocess.run(['python', script_name, topo, traj], check=True)
+        except subprocess.CalledProcessError as e:
+            messagebox.showerror("エラー", f"スクリプトの実行中にエラーが発生しました。\n{e}")
+        except FileNotFoundError:
+            messagebox.showerror("エラー", f"{script_name} が見つかりません。")
+
+def main():
+    app = TrajectoryAnalysisGUI()
+    app.mainloop()
+
+if __name__ == "__main__":
+    main()
