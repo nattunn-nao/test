@@ -1,0 +1,179 @@
+"""
+スクリプトの説明
+1. 距離の計算とヒストグラムの作成
+
+def calculate_rdf(u, ag1, ag2, nbins=75, r_range=(0.0, 15.0)):
+    ...
+
+ヒストグラムの初期化:
+rdf = np.zeros(nbins): RDFを格納する配列を初期化。
+bins: 距離の区間を定義。
+bin_centers: ヒストグラムの中心値。
+
+
+全フレームでループ:
+for ts in u.trajectory:
+    ...
+各フレームで、グループAとグループBの原子間の距離を計算。
+mda.lib.distances.distance_arrayを使用して、距離行列を計算。
+距離をフラットな1次元配列に変換。
+
+
+ヒストグラムの更新:
+hist, _ = np.histogram(distances, bins=bins)
+rdf += hist
+計算した距離をヒストグラムに集計。
+
+2. RDFの正規化
+# RDFの正規化
+rdf = rdf / total_counts  # ペアの総数で割る
+
+number_density = len(ag2) / avg_volume  # 相手グループの数密度
+
+shell_volumes = (4.0 / 3.0) * np.pi * (bins[1:]**3 - bins[:-1]**3)  # シェルの体積
+ideal_gas = shell_volumes * number_density  # 理想気体の粒子数
+
+rdf = rdf / ideal_gas  # 理想気体の分布で割る
+rdf = rdf / n_frames  # フレーム数で平均化
+ペアの総数で正規化:
+
+RDFをペアの総数で割ることで、確率密度に変換。
+理想気体の分布で割る:
+
+シェルの体積と相手グループの数密度を用いて、理想気体の粒子数を計算。
+RDFを理想気体の分布で割ることで、最終的なRDFを得る。
+フレーム数で平均化:
+
+全てのフレームで計算した結果を平均化。
+使用方法
+ターミナルまたはコマンドプロンプトで、以下のように実行します。
+
+bash
+コードをコピーする
+python rdf_manual.py -t topology.gro -d trajectory.dump -s1 "name O" -s2 "name H" --bins 100 --range 15.0 --output rdf_output.png
+-t topology.gro: トポロジーファイル（.gro形式）。
+-d trajectory.dump: トラジェクトリファイル（.dump形式）。
+-s1 "name O": 第1の原子グループの選択（例：原子名が'O'の原子）。
+-s2 "name H": 第2の原子グループの選択（例：原子名が'H'の原子）。
+--bins 100: RDFのヒストグラムのビン数を100に設定。
+--range 15.0: RDF計算の最大距離を15.0オングストロームに設定。
+--output rdf_output.png: RDFプロットをrdf_output.pngとして保存。
+補足説明
+1. シェルの体積の計算
+シェルの体積は、球殻の体積を計算することで求められます。
+
+  はビンの内側と外側の半径。
+2. 理想気体の数密度
+相手グループ（グループB）の数密度は、全体の体積に対する原子数で計算します。
+
+  はグループBの原子数。
+𝑉
+V は系の体積。
+3. RDFの正規化の理由
+RDFは、ある距離 
+𝑟
+r における粒子の存在確率を示す関数であり、理想気体と比較することで、構造の特徴を明らかにします。
+注意事項
+周期境界条件: 距離の計算時に周期境界条件を考慮しています。ボックス情報が正しく設定されている必要があります。
+
+計算時間: トラジェクトリが大きい場合、計算時間が長くなる可能性があります。その場合、フレームを間引くか、原子グループを小さくすることで対応できます。
+
+単位系: トポロジーとトラジェクトリのファイルが同じ単位系（通常はオングストローム）であることを確認してください。
+
+
+"""
+import MDAnalysis as mda
+import numpy as np
+import matplotlib.pyplot as plt
+import argparse
+
+def calculate_rdf(u, ag1, ag2, nbins=75, r_range=(0.0, 15.0)):
+    # RDFを格納する配列を初期化
+    rdf = np.zeros(nbins)
+    rmin, rmax = r_range
+    bins = np.linspace(rmin, rmax, nbins + 1)
+    bin_centers = 0.5 * (bins[:-1] + bins[1:])
+    dr = bins[1] - bins[0]
+
+    # 全フレーム数
+    n_frames = len(u.trajectory)
+    print(f"Total number of frames: {n_frames}")
+
+    # 系全体の体積（平均値を使用）
+    volumes = []
+    for ts in u.trajectory:
+        volumes.append(ts.volume)
+    avg_volume = np.mean(volumes)
+
+    # 総距離数
+    total_counts = 0
+
+    # 各フレームで距離を計算し、ヒストグラムを更新
+    for ts in u.trajectory:
+        # 距離行列の計算（周期境界条件を考慮）
+        distances = mda.lib.distances.distance_array(ag1.positions, ag2.positions, box=ts.dimensions)
+        distances = distances.flatten()
+
+        # ヒストグラムの更新
+        hist, _ = np.histogram(distances, bins=bins)
+        rdf += hist
+
+        # 総距離数の更新
+        total_counts += len(distances)
+
+    # RDFの正規化
+    # ペアの数で割る
+    rdf = rdf / total_counts
+
+    # 理想気体の分布で割る（体積要素で割る）
+    number_density = len(ag2) / avg_volume  # 相手グループの数密度
+    shell_volumes = (4.0 / 3.0) * np.pi * (bins[1:]**3 - bins[:-1]**3)
+    ideal_gas = shell_volumes * number_density
+
+    rdf = rdf / ideal_gas
+    rdf = rdf / n_frames  # フレーム数で平均化
+
+    return bin_centers, rdf
+
+def main():
+    parser = argparse.ArgumentParser(description='Calculate RDF without using InterRDF.')
+    parser.add_argument('-t', '--topology', required=True, help='Topology file (.gro)')
+    parser.add_argument('-d', '--trajectory', required=True, help='Trajectory file (.dump)')
+    parser.add_argument('-s1', '--selection1', required=True, help='Atom selection for group 1 (e.g., "name O")')
+    parser.add_argument('-s2', '--selection2', required=True, help='Atom selection for group 2 (e.g., "name H")')
+    parser.add_argument('--bins', type=int, default=75, help='Number of bins for the RDF histogram')
+    parser.add_argument('--range', type=float, default=15.0, help='Maximum distance for the RDF calculation (Angstrom)')
+    parser.add_argument('--output', default='rdf_output.png', help='Filename for the output RDF plot')
+
+    args = parser.parse_args()
+
+    # Universeの作成
+    u = mda.Universe(args.topology, args.trajectory, topology_format='GRO', format='LAMMPSDUMP')
+
+    # 原子グループの選択
+    ag1 = u.select_atoms(args.selection1)
+    ag2 = u.select_atoms(args.selection2)
+
+    print(f"Selected {len(ag1)} atoms for group 1 and {len(ag2)} atoms for group 2.")
+
+    if len(ag1) == 0 or len(ag2) == 0:
+        print("Error: One of the selection groups is empty.")
+        return
+
+    # RDFの計算
+    distances, rdf = calculate_rdf(u, ag1, ag2, nbins=args.bins, r_range=(0.0, args.range))
+
+    # RDFのプロット
+    plt.figure()
+    plt.plot(distances, rdf)
+    plt.xlabel('Distance (Å)')
+    plt.ylabel('g(r)')
+    plt.title('Radial Distribution Function')
+    plt.grid(True)
+    plt.savefig(args.output)
+    plt.show()
+
+    print(f"RDF plot saved as {args.output}")
+
+if __name__ == '__main__':
+    main()
