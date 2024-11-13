@@ -1,0 +1,87 @@
+import MDAnalysis as mda
+import numpy as np
+import matplotlib.pyplot as plt
+
+# 1. ユニバースの作成
+# トポロジーファイルとトラジェクトリファイルを指定します
+topology_file = 'topology.gro'  # トポロジーファイルのパス
+trajectory_file = 'trajectory.xtc'  # トラジェクトリファイルのパス
+
+# トポロジーファイルとトラジェクトリファイルの形式を指定（必要に応じて）
+u = mda.Universe(topology_file, trajectory_file)
+
+# 2. 原子グループの選択
+# ターゲットとリファレンスの原子選択文字列を指定します
+selection1 = 'name O'  # グループ1の原子選択（例：酸素原子）
+selection2 = 'name H'  # グループ2の原子選択（例：水素原子）
+
+# 原子グループの取得
+ag1 = u.select_atoms(selection1)
+ag2 = u.select_atoms(selection2)
+
+print(f"グループ1の原子数: {len(ag1)}")
+print(f"グループ2の原子数: {len(ag2)}")
+
+if len(ag1) == 0 or len(ag2) == 0:
+    print("エラー: 選択した原子グループが空です。")
+    exit()
+
+# 3. RDFの計算
+def calculate_rdf(u, ag1, ag2, nbins=75, r_range=(0.0, 15.0)):
+    # RDFを格納する配列を初期化
+    rdf = np.zeros(nbins)
+    rmin, rmax = r_range
+    bins = np.linspace(rmin, rmax, nbins + 1)
+    bin_centers = 0.5 * (bins[:-1] + bins[1:])
+    dr = bins[1] - bins[0]
+
+    # 全フレーム数
+    n_frames = len(u.trajectory)
+    print(f"総フレーム数: {n_frames}")
+
+    # 系全体の体積（平均値を使用）
+    volumes = []
+    for ts in u.trajectory:
+        volumes.append(ts.volume)
+    avg_volume = np.mean(volumes)
+
+    # 総距離数
+    total_counts = 0
+
+    # 各フレームで距離を計算し、ヒストグラムを更新
+    for ts in u.trajectory:
+        # 距離行列の計算（周期境界条件を考慮）
+        distances = mda.lib.distances.distance_array(ag1.positions, ag2.positions, box=ts.dimensions)
+        distances = distances.flatten()
+
+        # ヒストグラムの更新
+        hist, _ = np.histogram(distances, bins=bins)
+        rdf += hist
+
+        # 総距離数の更新
+        total_counts += len(distances)
+
+    # RDFの正規化
+    rdf = rdf / total_counts  # ペアの総数で割る
+
+    number_density = len(ag2) / avg_volume  # 相手グループの数密度
+
+    shell_volumes = (4.0 / 3.0) * np.pi * (bins[1:]**3 - bins[:-1]**3)  # シェルの体積
+    ideal_gas = shell_volumes * number_density  # 理想気体の粒子数
+
+    rdf = rdf / ideal_gas  # 理想気体の分布で割る
+    rdf = rdf / n_frames  # フレーム数で平均化
+
+    return bin_centers, rdf
+
+# RDFの計算
+distances, rdf = calculate_rdf(u, ag1, ag2, nbins=100, r_range=(0.0, 15.0))
+
+# 4. RDFのプロット
+plt.figure()
+plt.plot(distances, rdf)
+plt.xlabel('距離 (Å)')
+plt.ylabel('g(r)')
+plt.title('動径分布関数')
+plt.grid(True)
+plt.show()
