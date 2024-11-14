@@ -1,0 +1,47 @@
+import numpy as np
+import MDAnalysis as mda
+from MDAnalysis.analysis import distances
+import matplotlib.pyplot as plt
+
+# トポロジーとトラジェクトリを生成
+# テストのために、簡単なデータで進める
+from MDAnalysis.tests.datafiles import PSF, DCD  # サンプルデータの使用
+
+# MDAnalysis Universeオブジェクトの作成
+# トポロジー情報 (PSFファイル) とトラジェクトリ情報 (DCDファイル) を読み込む
+u = mda.Universe(PSF, DCD)
+
+# 粒子の選択：ここでは全水素原子と全酸素原子を選ぶ
+atom_group_1 = u.select_atoms('name OH2')  # 酸素原子 (水分子の酸素)
+atom_group_2 = u.select_atoms('name H1 H2')  # 水素原子 (水分子の水素)
+
+# RDF計算のパラメータ設定
+r_max = 10.0  # RDFの計算範囲 (10 Å まで)
+dr = 0.1      # ビン幅 (0.1 Å ごとに区切る)
+bins = np.arange(0.0, r_max + dr, dr)  # ビンの境界値の配列
+rdf = np.zeros(len(bins) - 1)  # RDFを格納する配列
+
+# フレームごとに距離を計算してRDFを更新
+for ts in u.trajectory:
+    # 選択した2つのグループ間の距離を計算
+    distances_array = distances.distance_array(atom_group_1.positions, atom_group_2.positions)
+    
+    # 各ペア間の距離をヒストグラムに集計
+    hist, edges = np.histogram(distances_array, bins=bins)
+    rdf += hist
+
+# 正規化
+# 球殻体積を考慮して規格化を行う
+number_density = len(atom_group_2) / u.dimensions[:3].prod()  # 粒子密度を計算
+bin_volumes = (4.0 / 3.0) * np.pi * (np.diff(bins**3))  # 各ビンの体積を計算
+normalization_factor = number_density * len(u.trajectory) * len(atom_group_1) * bin_volumes
+rdf = rdf / normalization_factor
+
+# プロット
+bin_centers = 0.5 * (bins[1:] + bins[:-1])  # ビンの中心値を計算
+plt.plot(bin_centers, rdf)
+plt.xlabel('Distance (A)')
+plt.ylabel('g(r)')
+plt.title('Radial Distribution Function')
+plt.grid()
+plt.show()
