@@ -1,48 +1,49 @@
 import MDAnalysis as mda
-from MDAnalysis.analysis.rdf import InterRDF
+from MDAnalysis.analysis import lineardensity
 import matplotlib.pyplot as plt
-import argparse
+import numpy as np
 
-def main():
-    parser = argparse.ArgumentParser(description='Calculate RDF using MDAnalysis.')
-    parser.add_argument('-t', '--topology', required=True, help='Topology file (.gro)')
-    parser.add_argument('-d', '--trajectory', required=True, help='Trajectory file (.dump)')
-    parser.add_argument('-s1', '--selection1', required=True, help='Atom selection for group 1 (e.g., "name O")')
-    parser.add_argument('-s2', '--selection2', required=True, help='Atom selection for group 2 (e.g., "name H")')
-    parser.add_argument('--bins', type=int, default=75, help='Number of bins for the RDF histogram')
-    parser.add_argument('--range', type=float, default=15.0, help='Maximum distance for the RDF calculation (Angstrom)')
-    parser.add_argument('--output', default='rdf_output.png', help='Filename for the output RDF plot')
+# 1. ユニバースの作成
+# トポロジーファイルとトラジェクトリファイルを指定します
+topology_file = 'topology.gro'       # 例：トポロジーファイル（.gro形式）
+trajectory_file = 'trajectory.xtc'   # 例：トラジェクトリファイル（.xtc形式）
 
-    args = parser.parse_args()
+# ユニバースの作成
+u = mda.Universe(topology_file, trajectory_file)
 
-    # Universeの作成
-    u = mda.Universe(args.topology, args.trajectory, topology_format='GRO', format='LAMMPSDUMP')
+# 2. 原子グループの選択
+# Si、O、Hの各原子グループを選択
+si_atoms = u.select_atoms('name Si')
+o_atoms = u.select_atoms('name O')
+h_atoms = u.select_atoms('name H')
 
-    # 原子グループの選択
-    ag1 = u.select_atoms(args.selection1)
-    ag2 = u.select_atoms(args.selection2)
+# 3. 密度プロファイルの計算
+# LinearDensityクラスを使用して密度プロファイルを計算します
+# 軸は界面の法線方向（例：z軸）を指定
+ld_si = lineardensity.LinearDensity(si_atoms, grouping='atoms', bins=200)
+ld_si.run()
 
-    print(f"Selected {len(ag1)} atoms for group 1 and {len(ag2)} atoms for group 2.")
+ld_o = lineardensity.LinearDensity(o_atoms, grouping='atoms', bins=200)
+ld_o.run()
 
-    if len(ag1) == 0 or len(ag2) == 0:
-        print("Error: One of the selection groups is empty.")
-        return
+ld_h = lineardensity.LinearDensity(h_atoms, grouping='atoms', bins=200)
+ld_h.run()
 
-    # RDFの計算
-    rdf = InterRDF(ag1, ag2, nbins=args.bins, range=(0.0, args.range))
-    rdf.run()
+# 4. 密度プロファイルの取得
+# z軸に沿った密度データを取得
+z = ld_si.results.z.pos
+density_si = ld_si.results.z.mass_density
+density_o = ld_o.results.z.mass_density
+density_h = ld_h.results.z.mass_density
 
-    # RDFのプロット
-    plt.figure()
-    plt.plot(rdf.bins, rdf.rdf)
-    plt.xlabel('Distance (Å)')
-    plt.ylabel('g(r)')
-    plt.title('Radial Distribution Function')
-    plt.grid(True)
-    plt.savefig(args.output)
-    plt.show()
-
-    print(f"RDF plot saved as {args.output}")
-
-if __name__ == '__main__':
-    main()
+# 5. プロット
+plt.figure(figsize=(8, 6))
+plt.plot(z, density_si, label='Si')
+plt.plot(z, density_o, label='O')
+plt.plot(z, density_h, label='H')
+plt.xlabel('Position along z-axis (Å)')
+plt.ylabel('Mass Density (kg/m^3)')
+plt.title('Density Profile along z-axis')
+plt.legend()
+plt.grid(True)
+plt.show()
