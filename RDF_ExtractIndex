@@ -1,0 +1,68 @@
+import MDAnalysis as mda
+from MDAnalysis.core.universe import Atom
+import numpy as np
+
+# 1. トポロジーファイルとトラジェクトリファイルのパスを指定
+topology_file = 'topology.gro'
+trajectory_file = 'trajectory.xtc'
+
+# 2. Universeの作成
+u = mda.Universe(topology_file, trajectory_file)
+
+# 3. 系に含まれる全ての分子種を取得
+# 分子種は残基名(resname)で区別されると仮定
+resnames = list(set(u.atoms.resnames))
+print(f"分子種の一覧: {resnames}")
+
+# 4. 分子種ごとの構成原子数を取得
+residue_atom_counts = {}
+for resname in resnames:
+    # その分子種の最初の残基を取得
+    residue = u.select_atoms(f"resname {resname}").residues[0]
+    atom_count = len(residue.atoms)
+    residue_atom_counts[resname] = atom_count
+    print(f"分子種 '{resname}' の原子数: {atom_count}")
+
+# 5. リファレンス原子の設定
+# リファレンス分子種と、その分子内での原子のインデックス（0から始まる）
+reference_resname = 'MOL'  # リファレンス分子種の残基名
+reference_atom_indices_in_residue = [0, 2]  # リファレンス原子の分子内でのインデックスのリスト
+
+# 6. ターゲット原子の設定
+target_resname = 'SOL'  # ターゲット分子種の残基名
+target_atom_indices_in_residue = [0]  # ターゲット原子の分子内でのインデックスのリスト
+
+# 7. リファレンス原子の全体のインデックス番号を取得
+reference_global_indices = []
+
+# リファレンス分子種の全ての残基について処理
+for residue in u.select_atoms(f"resname {reference_resname}").residues:
+    for idx in reference_atom_indices_in_residue:
+        if len(residue.atoms) > idx:
+            atom = residue.atoms[idx]
+            reference_global_indices.append(atom.index)
+        else:
+            print(f"Residue {residue.resid} in {reference_resname} does not have atom at index {idx}")
+
+# 8. ターゲット原子の全体のインデックス番号を取得
+target_global_indices = []
+
+# ターゲット分子種の全ての残基について処理
+for residue in u.select_atoms(f"resname {target_resname}").residues:
+    for idx in target_atom_indices_in_residue:
+        if len(residue.atoms) > idx:
+            atom = residue.atoms[idx]
+            target_global_indices.append(atom.index)
+        else:
+            print(f"Residue {residue.resid} in {target_resname} does not have atom at index {idx}")
+
+# 9. インデックス番号をテキストファイルに出力
+with open('rdf_indices.txt', 'w') as f:
+    f.write('Reference Atom Indices:\n')
+    f.write(','.join(map(str, reference_global_indices)))
+    f.write('\n')
+    f.write('Target Atom Indices:\n')
+    f.write(','.join(map(str, target_global_indices)))
+    f.write('\n')
+
+print("インデックス番号を 'rdf_indices.txt' に出力しました。")
