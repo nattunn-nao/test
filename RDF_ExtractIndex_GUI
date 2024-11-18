@@ -1,0 +1,196 @@
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+import MDAnalysis as mda
+
+class IndexSelectionGUI(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("RDFインデックス選択ツール")
+        self.geometry("400x300")
+        
+        # ファイルパスを格納する変数
+        self.topology_file = None
+        self.trajectory_file = None
+        
+        # MDAnalysisのUniverse
+        self.universe = None
+        
+        # 選択されたリファレンスとターゲットを格納する変数
+        self.reference_resname = tk.StringVar()
+        self.reference_atom_name = tk.StringVar()
+        
+        self.target_selections = []  # ターゲットのリスト（辞書形式）
+        
+        # ファイル選択から開始
+        self.select_files()
+        
+        # ファイルが選択され、Universeが作成されたらリファレンス選択へ
+        if self.universe:
+            self.create_reference_selection()
+        
+    def select_files(self):
+        messagebox.showinfo("トポロジーファイルの選択", "トポロジーファイルを選択してください")
+        topology_file = filedialog.askopenfilename(title="トポロジーファイルの選択")
+        if not topology_file:
+            messagebox.showerror("エラー", "トポロジーファイルが選択されていません")
+            return
+        self.topology_file = topology_file
+        
+        messagebox.showinfo("トラジェクトリファイルの選択", "トラジェクトリファイルを選択してください")
+        trajectory_file = filedialog.askopenfilename(title="トラジェクトリファイルの選択")
+        if not trajectory_file:
+            messagebox.showerror("エラー", "トラジェクトリファイルが選択されていません")
+            return
+        self.trajectory_file = trajectory_file
+        
+        try:
+            self.universe = mda.Universe(self.topology_file, self.trajectory_file)
+        except Exception as e:
+            messagebox.showerror("エラー", f"Universeの作成に失敗しました: {e}")
+            self.universe = None
+        
+    def create_reference_selection(self):
+        self.clear_window()
+        label = ttk.Label(self, text="リファレンス分子を選択してください:")
+        label.pack(pady=5)
+        
+        resnames = sorted(set(self.universe.atoms.resnames))
+        self.reference_resname_combobox = ttk.Combobox(self, values=resnames, textvariable=self.reference_resname)
+        self.reference_resname_combobox.pack(pady=5)
+        self.reference_resname_combobox.bind("<<ComboboxSelected>>", self.update_reference_atoms)
+        
+        self.reference_atom_combobox = ttk.Combobox(self, textvariable=self.reference_atom_name)
+        self.reference_atom_combobox.pack(pady=5)
+        
+        next_button = ttk.Button(self, text="次へ", command=self.process_reference_selection)
+        next_button.pack(pady=10)
+    
+    def update_reference_atoms(self, event):
+        resname = self.reference_resname.get()
+        residue = self.universe.select_atoms(f"resname {resname}").residues[0]
+        atom_names = [atom.name for atom in residue.atoms]
+        self.reference_atom_combobox['values'] = atom_names
+        if atom_names:
+            self.reference_atom_combobox.current(0)
+    
+    def process_reference_selection(self):
+        if not self.reference_resname.get() or not self.reference_atom_name.get():
+            messagebox.showerror("エラー", "リファレンス分子と原子を選択してください")
+            return
+        # ターゲット選択へ進む
+        self.create_target_selection()
+    
+    def create_target_selection(self):
+        self.clear_window()
+        label = ttk.Label(self, text="ターゲット分子を選択してください:")
+        label.pack(pady=5)
+        
+        self.target_resname = tk.StringVar()
+        self.target_atom_name = tk.StringVar()
+        
+        resnames = sorted(set(self.universe.atoms.resnames))
+        self.target_resname_combobox = ttk.Combobox(self, values=resnames, textvariable=self.target_resname)
+        self.target_resname_combobox.pack(pady=5)
+        self.target_resname_combobox.bind("<<ComboboxSelected>>", self.update_target_atoms)
+        
+        self.target_atom_combobox = ttk.Combobox(self, textvariable=self.target_atom_name)
+        self.target_atom_combobox.pack(pady=5)
+        
+        button_frame = ttk.Frame(self)
+        button_frame.pack(pady=10)
+        
+        add_button = ttk.Button(button_frame, text="追加", command=self.add_target)
+        add_button.pack(side=tk.LEFT, padx=5)
+        
+        complete_button = ttk.Button(button_frame, text="完了", command=self.complete_selection)
+        complete_button.pack(side=tk.LEFT, padx=5)
+    
+    def update_target_atoms(self, event):
+        resname = self.target_resname.get()
+        residue = self.universe.select_atoms(f"resname {resname}").residues[0]
+        atom_names = [atom.name for atom in residue.atoms]
+        self.target_atom_combobox['values'] = atom_names
+        if atom_names:
+            self.target_atom_combobox.current(0)
+    
+    def add_target(self):
+        if not self.target_resname.get() or not self.target_atom_name.get():
+            messagebox.showerror("エラー", "ターゲット分子と原子を選択してください")
+            return
+        target = {
+            'resname': self.target_resname.get(),
+            'atom_name': self.target_atom_name.get()
+        }
+        self.target_selections.append(target)
+        messagebox.showinfo("追加完了", f"ターゲットを追加しました: {target['resname']} - {target['atom_name']}")
+        # 選択をクリア
+        self.target_resname.set('')
+        self.target_atom_name.set('')
+        self.target_resname_combobox.set('')
+        self.target_atom_combobox.set('')
+        self.target_atom_combobox['values'] = []
+    
+    def complete_selection(self):
+        if not self.target_selections:
+            messagebox.showerror("エラー", "ターゲットが選択されていません")
+            return
+        # 選択を処理してインデックスファイルを生成
+        self.generate_indices()
+    
+    def generate_indices(self):
+        # リファレンス原子のインデックス取得
+        reference_resname = self.reference_resname.get()
+        reference_atom_name = self.reference_atom_name.get()
+        reference_indices = []
+        for residue in self.universe.select_atoms(f"resname {reference_resname}").residues:
+            atoms = residue.atoms.select_atoms(f"name {reference_atom_name}")
+            if len(atoms) == 1:
+                reference_indices.append(atoms[0].index)
+            else:
+                # 複数またはゼロの場合の処理
+                if len(atoms) == 0:
+                    messagebox.showwarning("警告", f"Residue {residue.resid} に {reference_atom_name} という原子がありません")
+                else:
+                    messagebox.showwarning("警告", f"Residue {residue.resid} に {reference_atom_name} という原子が複数あります")
+        # ターゲット原子のインデックス取得
+        target_indices_dict = {}
+        for target in self.target_selections:
+            resname = target['resname']
+            atom_name = target['atom_name']
+            indices = []
+            for residue in self.universe.select_atoms(f"resname {resname}").residues:
+                atoms = residue.atoms.select_atoms(f"name {atom_name}")
+                if len(atoms) == 1:
+                    indices.append(atoms[0].index)
+                else:
+                    if len(atoms) == 0:
+                        messagebox.showwarning("警告", f"Residue {residue.resid} に {atom_name} という原子がありません")
+                    else:
+                        messagebox.showwarning("警告", f"Residue {residue.resid} に {atom_name} という原子が複数あります")
+            key = f"{resname}_{atom_name}"
+            target_indices_dict[key] = indices
+        # インデックスをファイルに出力
+        self.write_indices_to_file(reference_indices, target_indices_dict)
+        messagebox.showinfo("完了", "インデックスファイルを作成しました")
+        self.destroy()
+    
+    def write_indices_to_file(self, reference_indices, target_indices_dict):
+        with open('rdf_indices.txt', 'w') as f:
+            f.write('Reference Atom Indices:\n')
+            f.write(','.join(map(str, reference_indices)))
+            f.write('\n')
+            for target_name, indices in target_indices_dict.items():
+                f.write(f'Target Atom Indices ({target_name}):\n')
+                f.write(','.join(map(str, indices)))
+                f.write('\n')
+    
+    def clear_window(self):
+        for widget in self.winfo_children():
+            widget.destroy()
+
+def main():
+    app = IndexSelectionGUI()
+    app.mainloop()
+
+if __name__ == '__main__':
+    main()
