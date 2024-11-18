@@ -1,0 +1,26 @@
+import MDAnalysis as mda
+from MDAnalysis.analysis.rdf import InterRDF
+
+# Universeの作成
+u = mda.Universe(topology_file, trajectory_file)
+
+# インデックス番号の読み込み
+with open('rdf_indices.txt', 'r') as f:
+    lines = f.readlines()
+    reference_indices = list(map(int, lines[1].strip().split(',')))
+    target_indices_dict = {}
+    for i in range(2, len(lines), 2):
+        target_name = lines[i].strip().split('(')[1].rstrip('):')
+        indices = list(map(int, lines[i+1].strip().split(',')))
+        target_indices_dict[target_name] = indices
+
+# リファレンスAtomGroupの作成
+reference_atoms = u.atoms[reference_indices]
+
+# 各ターゲットについてRDFを計算
+for target_name, indices in target_indices_dict.items():
+    target_atoms = u.atoms[indices]
+    rdf = InterRDF(reference_atoms, target_atoms, nbins=100, range=(0.0, 15.0))
+    rdf.run()
+    # RDFのプロットやデータの保存を行う
+    ...
