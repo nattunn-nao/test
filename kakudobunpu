@@ -1,0 +1,43 @@
+import MDAnalysis as mda
+import numpy as np
+import matplotlib.pyplot as plt
+
+# 1. トポロジーとトラジェクトリの読み込み
+u = mda.Universe('topology.gro', 'trajectory.xtc')
+
+# 2. 溶質原子（例：アミン基の窒素原子）を選択
+solute_atom = u.select_atoms('resname AEP and name N')[0]
+
+# 3. 解析範囲の設定（例：5 Å以内の水分子）
+cutoff = 5.0  # Å
+
+# 4. 角度データを格納するリストを初期化
+angles = []
+
+# 5. トラジェクトリをループして角度を計算
+for ts in u.trajectory:
+    solute_pos = solute_atom.position
+    # 溶質周りの水分子の酸素原子を選択
+    water_oxygens = u.select_atoms(f'resname SOL and name O and around {cutoff} point {solute_pos[0]} {solute_pos[1]} {solute_pos[2]}')
+    for water_O in water_oxygens:
+        # 水分子全体を取得
+        water_mol = water_O.residue.atoms
+        # 水素原子の位置を取得
+        H_positions = water_mol.select_atoms('name H1 H2').positions
+        # 双極子モーメントベクトルを計算（酸素から水素の中点へのベクトル）
+        dipole_vector = H_positions.mean(axis=0) - water_O.position
+        dipole_vector /= np.linalg.norm(dipole_vector)  # 正規化
+        # 溶質から水酸素へのベクトル
+        solute_to_water = water_O.position - solute_pos
+        solute_to_water /= np.linalg.norm(solute_to_water)  # 正規化
+        # 角度の計算
+        cos_theta = np.dot(dipole_vector, solute_to_water)
+        theta = np.arccos(cos_theta) * 180 / np.pi  # ラジアンから度へ変換
+        angles.append(theta)
+
+# 6. 角度分布のプロット
+plt.hist(angles, bins=50, density=True)
+plt.xlabel('角度 (度)')
+plt.ylabel('確率密度')
+plt.title('水分子の双極子モーメントの角度分布')
+plt.show()
