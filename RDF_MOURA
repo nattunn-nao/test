@@ -1,0 +1,82 @@
+import MDAnalysis as mda
+from MDAnalysis.analysis.rdf import InterRDF
+import numpy as np
+import pandas as pd
+import os
+
+def read_index_files(index_folder):
+    """
+    指定されたフォルダ内のインデックスファイルを読み込み、
+    リファレンスとターゲットのインデックスを取得する。
+    """
+    index_data = {}
+    for root, dirs, files in os.walk(index_folder):
+        for file in files:
+            if file.endswith('.txt'):
+                # ファイルパスを取得
+                file_path = os.path.join(root, file)
+                # サブフォルダ名を取得（例：AEP、wat）
+                subfolder = os.path.basename(root)
+                # インデックス名を生成（サブフォルダ名とファイル名を組み合わせる）
+                index_name = f"{subfolder}_{os.path.splitext(file)[0]}"
+                # インデックスファイルの読み込み（カンマ区切りの一行）
+                with open(file_path, 'r') as f:
+                    content = f.read()
+                    indices = [int(idx.strip()) for idx in content.strip().split(',') if idx.strip().isdigit()]
+                index_data[index_name] = indices
+    return index_data
+
+def main():
+    # ユーザー設定
+    topology_file = 'topology.gro'       # トポロジーファイルのパス
+    trajectory_file = 'trajectory.xtc'   # トラジェクトリファイルのパス
+    index_folder = 'index'               # インデックスファイルが格納されたフォルダのパス
+    output_excel = 'rdf_results.xlsx'    # 結果を保存するエクセルファイルのパス
+
+    # Universeの作成
+    u = mda.Universe(topology_file, trajectory_file)
+
+    # インデックスファイルの読み込み
+    index_data = read_index_files(index_folder)
+
+    # リファレンスとターゲットの組み合わせでRDFを計算
+    # リファレンス原子グループのリスト（キー）
+    reference_keys = [key for key in index_data.keys() if 'AEP' in key]
+    # ターゲット原子グループのリスト（キー）
+    target_keys = [key for key in index_data.keys() if 'wat' in key or 'WAT' in key or 'SOL' in key]
+
+    # エクセルライターの作成
+    writer = pd.ExcelWriter(output_excel, engine='openpyxl')
+
+    for ref_key in reference_keys:
+        ref_indices = index_data[ref_key]
+        ref_atoms = u.atoms[ref_indices]
+        rdf_data = {'Distance (Å)': None}  # 初期化
+
+        for tgt_key in target_keys:
+            tgt_indices = index_data[tgt_key]
+            tgt_atoms = u.atoms[tgt_indices]
+
+            print(f"Calculating RDF between {ref_key} and {tgt_key}...")
+
+            # RDFの計算
+            rdf = InterRDF(ref_atoms, tgt_atoms, nbins=100, range=(0.0, 15.0))
+            rdf.run()
+
+            # データの保存
+            if rdf_data['Distance (Å)'] is None:
+                rdf_data['Distance (Å)'] = rdf.bins
+            rdf_data[f'g(r) with {tgt_key}'] = rdf.rdf
+
+        # データフレームの作成
+        df = pd.DataFrame(rdf_data)
+        # エクセルシートに書き込み（シート名はリファレンスのキー）
+        sheet_name = ref_key[:31]  # シート名は31文字以内
+        df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+    # エクセルファイルの保存
+    writer.save()
+    print(f"RDFの計算結果を {output_excel} に保存しました。")
+
+if __name__ == "__main__":
+    main()
