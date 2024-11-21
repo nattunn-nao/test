@@ -1,0 +1,86 @@
+import MDAnalysis as mda
+
+# トポロジーとトラジェクトリのファイルパスを指定
+topology_file = 'topology.gro'  # または 'topology.pdb' など
+trajectory_file = 'trajectory.xtc'  # 必要に応じて
+
+# Universeの作成
+u = mda.Universe(topology_file, trajectory_file)
+
+# ポリマーの全原子を取得（例として残基名が 'POL' とする）
+polymer_atoms = u.select_atoms('resname POL')
+
+# 原子名のリストを取得
+atom_names = polymer_atoms.names
+
+# 原子インデックスのリストを取得
+atom_indices = polymer_atoms.indices
+
+# ユーザー指定：モノマー内で選択したい原子の位置（0から始まるインデックス）
+# 例：先頭の炭素原子（インデックス0）、二番目の炭素原子（インデックス1）
+target_positions_in_monomer = [0, 1]
+
+# モノマー単位を格納するリスト
+monomers = []
+
+# モノマーの開始・終了インデックス
+start_idx = 0
+end_idx = 0
+
+# 原子リストを走査してモノマーを特定
+for i in range(len(atom_names)):
+    atom_name = atom_names[i]
+    next_atom_name = atom_names[i+1] if i+1 < len(atom_names) else None
+
+    # モノマーの開始を検出（最初の原子）
+    if i == 0:
+        start_idx = i
+    elif atom_name == 'H' and next_atom_name == 'C':
+        # 現在のモノマーの終了位置を設定
+        end_idx = i
+        # モノマーの原子インデックス範囲を取得
+        monomer_atom_indices = atom_indices[start_idx:end_idx+1]
+        monomers.append(monomer_atom_indices)
+        # 次のモノマーの開始位置を設定
+        start_idx = i+1
+
+    # 最後のモノマーを処理
+    if i == len(atom_names) - 1:
+        end_idx = i
+        monomer_atom_indices = atom_indices[start_idx:end_idx+1]
+        monomers.append(monomer_atom_indices)
+
+# モノマー数を表示
+print(f"検出されたモノマー数: {len(monomers)}")
+
+# 各モノマー内で指定した位置の原子を選択
+target_atom_indices = []
+
+for monomer_idx, monomer in enumerate(monomers):
+    monomer_atom_names = atom_names[monomer[0]:monomer[-1]+1]
+    monomer_atom_indices = atom_indices[monomer[0]:monomer[-1]+1]
+
+    # モノマー内の原子名とインデックスを組み合わせたリストを作成
+    monomer_atoms_info = list(zip(monomer_atom_names, monomer_atom_indices))
+
+    # 指定された位置の原子を取得
+    for pos in target_positions_in_monomer:
+        if pos < len(monomer_atoms_info):
+            name, idx = monomer_atoms_info[pos]
+            # 必要に応じて原子名をチェック（例：炭素原子のみ）
+            if name == 'C':
+                target_atom_indices.append(idx)
+            else:
+                print(f"モノマー{monomer_idx+1}の位置{pos}の原子は炭素原子ではありません（{name}）。")
+        else:
+            print(f"モノマー{monomer_idx+1}には位置{pos}の原子が存在しません。")
+
+# 結果の表示
+print(f"取得した原子インデックス数: {len(target_atom_indices)}")
+
+# インデックスをカンマ区切りの一行にまとめる
+indices_str = ','.join(map(str, target_atom_indices))
+
+# ファイルに保存
+with open('polymer_target_atom_indices.txt', 'w') as f:
+    f.write(indices_str)
