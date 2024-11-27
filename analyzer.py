@@ -1,4 +1,6 @@
 # analyzer.py
+# python analyzer.py --config config.yaml
+# pip install PyYAML
 
 import os
 import yaml
@@ -37,6 +39,7 @@ class SnapshotExtractor:
         os.makedirs(self.snapshot_dir, exist_ok=True)
         self.u = mda.Universe(self.topology_file, self.trajectory_file)
         self.close_frames = []
+        self.snapshot_nearby_distance = config.get('snapshot_nearby_distance', 5.0)
 
     def find_close_frames(self):
         sel1 = self.u.select_atoms(self.selection1)
@@ -49,15 +52,19 @@ class SnapshotExtractor:
         logging.info(f"近接フレーム数: {len(self.close_frames)}")
 
     def save_snapshots(self):
-        sel1 = self.u.select_atoms(self.selection1)
-        sel2 = self.u.select_atoms(self.selection2)
-
         for i, frame in enumerate(self.close_frames):
             self.u.trajectory[frame]
-            sel1 = self.u.select_atoms(self.selection1)
-            sel2 = self.u.select_atoms(self.selection2)
-            water = self.u.select_atoms('resname SOL and around 5.0 group sel_group', sel_group=sel1 + sel2)
-            selection = sel1 + sel2 + water
+            sel1 = self.u.select_atoms(self.selection1)  # 分子A
+            sel2 = self.u.select_atoms(self.selection2)  # 分子B（ポリマー）
+
+            # 分子Aから一定距離内のポリマー原子を選択
+            polymer_nearby = self.u.select_atoms(f'({self.selection2}) and around {self.snapshot_nearby_distance} group sel1', sel1=sel1)
+
+            # 周辺の水分子を選択（必要に応じて）
+            water = self.u.select_atoms(f'resname SOL and around {self.snapshot_nearby_distance} group sel1_polymer', sel1_polymer=sel1 + polymer_nearby)
+
+            # スナップショットに含める原子を結合
+            selection = sel1 + polymer_nearby + water
             selection.write(f"{self.snapshot_dir}/snapshot_{i}.pdb")
             logging.info(f"スナップショット保存: snapshot_{i}.pdb")
 
@@ -141,3 +148,4 @@ if __name__ == "__main__":
     parser.add_argument('--config', type=str, default='config.yaml', help='設定ファイルのパス')
     args = parser.parse_args()
     main(args.config)
+
