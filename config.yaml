@@ -1,0 +1,40 @@
+# config.yaml
+
+# トポロジーとトラジェクトリのファイルパス
+topology_file: 'topology.psf'
+trajectory_file: 'trajectory.dcd'
+
+# 分子の選択語
+selection1: 'resname A'
+selection2: 'resname B'
+
+# 近接の閾値（Å）
+distance_threshold: 5.0
+
+# スナップショットの保存ディレクトリ
+snapshot_dir: 'snapshots'
+
+# 分類関数のリスト
+classifiers:
+  - name: '水素結合'
+    function: 'check_hydrogen_bond'
+  - name: 'π-πスタッキング'
+    function: 'check_pi_pi_stacking'
+  - name: '単純な近接'
+    function: 'check_simple_proximity'
+
+# ログファイルのパス
+log_file: 'analysis.log'
+
+# 並列処理の設定
+num_processes: 4
+
+# その他のパラメータ
+hydrogen_bond:
+  distance: 3.5
+  angle: 150
+
+pi_pi_stacking:
+  center_distance: 5.0
+  angle_threshold: 30
+  displacement_threshold: 1.5
