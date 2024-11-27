@@ -5,8 +5,8 @@ topology_file: 'topology.psf'
 trajectory_file: 'trajectory.dcd'
 
 # 分子の選択語
-selection1: 'resname A'
-selection2: 'resname B'
+selection1: 'resname A'  # 分子Aの選択語
+selection2: 'resname B'  # 分子B（ポリマー）の選択語
 
 # 近接の閾値（Å）
 distance_threshold: 5.0
@@ -38,3 +38,8 @@ pi_pi_stacking:
   center_distance: 5.0
   angle_threshold: 30
   displacement_threshold: 1.5
+  ring_indices_file1: 'C1'  # 分子Aの環原子インデックスを格納したファイル
+  ring_indices_file2: 'C2'  # 分子Bの環原子インデックスを格納したファイル（必要に応じて）
+
+# スナップショット保存時の周辺原子の距離（Å）
+snapshot_nearby_distance: 5.0
