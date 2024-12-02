@@ -1,40 +1,59 @@
 import MDAnalysis as mda
 from MDAnalysis.analysis import distances
-import numpy as np
 
+# トポロジーとトラジェクトリーデータをロード
+u = mda.Universe('topology.pdb', 'trajectory.dcd')
 
+# リファレンス分子とターゲット分子、溶媒分子のレジデュ名を定義
+reference_resname = 'POL'  # リファレンス分子のレジデュ名（例：ポリマー）
+target_resname = 'LIG'     # ターゲット分子のレジデュ名（例：有機低分子）
+solvent_resname = 'SOL'    # 溶媒分子のレジデュ名（例：水）
 
+# リファレンス分子を選択（水素原子を除く）
+reference_atoms = u.select_atoms(f"resname {reference_resname} and not name H*")
 
+# ターゲット分子をレジデュのリストとして取得
+target_molecules = [res for res in u.residues if res.resname == target_resname]
 
-distance_threshold = 10.0  # 閾値（Å）
-snapshot_radius = 15.0     # スナップショットの半径（Å）
+# 閾値距離と抽出半径（単位：Å）
+threshold_distance = 5.0
+extraction_radius = 10.0
 
+# トラジェクトリーをフレームごとにループ
 for ts in u.trajectory:
-    # リファレンス分子の中心を計算
-    reference_center = reference.center_of_mass()
-
+    # リファレンス原子の位置を取得
+    reference_positions = reference_atoms.positions.copy()
+    
     # 各ターゲット分子に対して処理
-    for target_residue in targets.residues:
-        target_atoms = target_residue.atoms
-        target_center = target_atoms.center_of_mass()
-        distance = np.linalg.norm(reference_center - target_center)
-
-        if distance <= distance_threshold:
-            # 座標のシフト
+    for target_residue in target_molecules:
+        # ターゲット分子の中心を計算
+        target_center = target_residue.atoms.center_of_geometry()
+        
+        # リファレンス原子とターゲット中心間の距離を計算（周期境界条件を考慮）
+        distances_array = distances.distance_array(reference_positions, [target_center], box=u.dimensions)
+        
+        # 最小距離を取得
+        min_distance = distances_array.min()
+        
+        # 閾値以下の場合、スナップショットを取得
+        if min_distance <= threshold_distance:
+            # リファレンス分子の中心を取得
+            reference_center = reference_atoms.center_of_geometry()
+            # 座標をシフトしてリファレンス分子を原点に配置
             shift = -reference_center
-            shifted_positions = u.atoms.positions + shift
-            u.atoms.positions = shifted_positions
-
-            # スナップショットの選択
-            snapshot_selection = f"(around {snapshot_radius} point 0 0 0) and not resname SOLV"
-            snapshot_atoms = u.select_atoms(snapshot_selection) + reference + target_atoms
-            snapshot_atoms = snapshot_atoms.unique
-
-            # スナップショットの保存
-            frame_number = ts.frame
-            snapshot_filename = f"snapshot_frame{frame_number}_target{target_residue.resid}.pdb"
-            with mda.Writer(snapshot_filename) as W:
-                W.write(snapshot_atoms)
-
+            u.atoms.translate(shift)
+            
+            # 原点周りの指定した半径内の原子を選択（溶媒分子を除く）
+            selection_string = f"(around {extraction_radius} (0, 0, 0)) and not resname {solvent_resname}"
+            surrounding_atoms = u.select_atoms(selection_string)
+            
+            # リファレンスとターゲット分子を必ず含める
+            surrounding_atoms = surrounding_atoms + reference_atoms + target_residue.atoms
+            surrounding_atoms = surrounding_atoms.unique
+            
+            # スナップショットを出力
+            filename = f"snapshot_frame{ts.frame}_target{target_residue.resid}.pdb"
+            surrounding_atoms.write(filename)
+            
             # 座標を元に戻す
-            u.atoms.positions = u.atoms.positions - shift
+            u.atoms.translate(-shift)
