@@ -1,0 +1,54 @@
+import MDAnalysis as mda
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ① 環構造のインデックス指定と質量中心の計算
+def compute_center_of_mass(universe, atom_indices):
+    """指定された原子インデックスの質量中心を計算"""
+    atoms = universe.select_atoms("index " + " ".join(map(str, atom_indices)))
+    return atoms.center_of_mass()
+
+# ② 法線ベクトルを計算
+def compute_normal_vector(positions):
+    """3つの原子の座標から法線ベクトルを計算"""
+    vec1 = positions[1] - positions[0]
+    vec2 = positions[2] - positions[0]
+    normal_vector = np.cross(vec1, vec2)
+    return normal_vector / np.linalg.norm(normal_vector)  # 正規化
+
+# ③ Z軸との角度を計算
+def compute_angle_with_z(normal_vector):
+    """法線ベクトルとZ軸との角度を計算"""
+    z_axis = np.array([0, 0, 1])
+    cos_theta = np.dot(normal_vector, z_axis)
+    cos_theta = np.clip(cos_theta, -1.0, 1.0)  # 精度誤差補正
+    angle = np.arccos(cos_theta)
+    return np.degrees(angle)
+
+# MD解析データをロード
+u = mda.Universe("trajectory.psf", "trajectory.dcd")
+
+# 設定：環構造の原子インデックス
+ring_indices = [0, 1, 2]  # 環を構成する3つの原子のインデックス
+
+# 角度を格納するリスト
+angles = []
+
+# 全フレームで解析
+for ts in u.trajectory:
+    positions = u.atoms[ring_indices].positions  # 環構造の座標を取得
+    normal_vector = compute_normal_vector(positions)  # 法線ベクトルを計算
+    angle = compute_angle_with_z(normal_vector)  # Z軸との角度を計算
+    angles.append(angle)
+
+# ④ ヒストグラムの計算と散布図の描画
+angles = np.array(angles)
+probability, bins = np.histogram(angles, bins=50, density=True)
+bin_centers = 0.5 * (bins[:-1] + bins[1:])
+
+plt.plot(bin_centers, probability)
+plt.xlabel("Angle with Z-axis (degrees)")
+plt.ylabel("Probability Density")
+plt.title("Orientation Distribution of Molecular Plane")
+plt.grid()
+plt.show()
