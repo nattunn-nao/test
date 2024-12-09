@@ -1,49 +1,148 @@
 import MDAnalysis as mda
-from MDAnalysis.analysis import lineardensity
-import matplotlib.pyplot as plt
-import numpy as np
+from MDAnalysis.analysis.rdf import InterRDF_s
+import pandas as pd
+import os
+from concurrent.futures import ProcessPoolExecutor
 
-# 1. ユニバースの作成
-# トポロジーファイルとトラジェクトリファイルを指定します
-topology_file = 'topology.gro'       # 例：トポロジーファイル（.gro形式）
-trajectory_file = 'trajectory.xtc'   # 例：トラジェクトリファイル（.xtc形式）
+def main():
+    # ユーザー設定
+    excel_name = "AbsModel_2_10_Bulk"
+    folder_path = fr"{excel_name}"
+    topology_file = f'{folder_path}/lmp.gro'       # トポロジーファイルのパス
+    trajectory_file = f'{folder_path}/lmp.dump'    # トラジェクトリファイルのパス
+    index_folder = f'{folder_path}/index'          # インデックスファイルが格納されたフォルダのパス
+    output_excel = f'{folder_path}/{excel_name}.xlsx'  # 結果を保存するエクセルファイルのパス
+    
+    # パターンによるキー選択（ユーザビリティ向上）
+    # 例えば "AEP" を指定すると、キー名に"AEP"が含まれるindexファイルをrefやtgtに使う
+    # 空文字列やNoneを指定すると全てのキーを対象にする
+    reference_pattern = "AEP"
+    target_pattern = "AEP"
 
-# ユニバースの作成
-u = mda.Universe(topology_file, trajectory_file)
+    # RDF計算条件
+    nbins = 500
+    r_range = (0.0, 15.0)
 
-# 2. 原子グループの選択
-# Si、O、Hの各原子グループを選択
-si_atoms = u.select_atoms('name Si')
-o_atoms = u.select_atoms('name O')
-h_atoms = u.select_atoms('name H')
+    # Universeの作成
+    u = mda.Universe(topology_file, trajectory_file, format='LAMMPSDUMP')
 
-# 3. 密度プロファイルの計算
-# LinearDensityクラスを使用して密度プロファイルを計算します
-# 軸は界面の法線方向（例：z軸）を指定
-ld_si = lineardensity.LinearDensity(si_atoms, grouping='atoms', bins=200)
-ld_si.run()
+    # インデックスファイルの読み込み
+    index_data = read_index_files(index_folder)
 
-ld_o = lineardensity.LinearDensity(o_atoms, grouping='atoms', bins=200)
-ld_o.run()
+    # パターンに基づいてリファレンスとターゲットのキーをフィルタリング
+    reference_keys = filter_keys(index_data.keys(), reference_pattern)
+    target_keys = filter_keys(index_data.keys(), target_pattern)
 
-ld_h = lineardensity.LinearDensity(h_atoms, grouping='atoms', bins=200)
-ld_h.run()
+    # エクセルライターの作成
+    writer = pd.ExcelWriter(output_excel, engine='openpyxl')
 
-# 4. 密度プロファイルの取得
-# z軸に沿った密度データを取得
-z = ld_si.results.z.pos
-density_si = ld_si.results.z.mass_density
-density_o = ld_o.results.z.mass_density
-density_h = ld_h.results.z.mass_density
+    # 並列処理の準備
+    tasks = []
+    for ref_key in reference_keys:
+        ref_indices = index_data[ref_key]
+        for tgt_key in target_keys:
+            tgt_indices = index_data[tgt_key]
+            # 並列計算用にタスクを蓄積
+            tasks.append((ref_key, tgt_key, ref_indices, tgt_indices, topology_file, trajectory_file, nbins, r_range))
 
-# 5. プロット
-plt.figure(figsize=(8, 6))
-plt.plot(z, density_si, label='Si')
-plt.plot(z, density_o, label='O')
-plt.plot(z, density_h, label='H')
-plt.xlabel('Position along z-axis (Å)')
-plt.ylabel('Mass Density (kg/m^3)')
-plt.title('Density Profile along z-axis')
-plt.legend()
-plt.grid(True)
-plt.show()
+    # 並列処理でRDFを計算
+    # 注意: Universeをサブプロセスでpickleするのは避けるため、calculate_rdf内でUniverseを再生成する
+    with ProcessPoolExecutor() as executor:
+        results = list(executor.map(calculate_rdf, tasks))
+
+    # 結果を処理してエクセルに保存
+    process_and_save_results(results, writer)
+
+    # エクセルファイルの保存
+    writer.close()
+    print(f"RDFの計算結果を {output_excel} に保存しました。")
+
+def filter_keys(all_keys, pattern):
+    """パターンに合致したキーのみ抽出する関数。patternがNoneや空文字なら全キー返す。"""
+    if not pattern:
+        # patternが空またはNoneの場合は全て返す
+        return list(all_keys)
+    else:
+        # patternが指定されている場合、キー名にpatternが含まれるもののみ返す
+        return [key for key in all_keys if pattern in key]
+
+def read_index_files(index_folder):
+    """
+    指定されたフォルダ内のインデックスファイルを読み込み、
+    {index_name: [indices]} の辞書を返す。
+    """
+    index_data = {}
+    for root, dirs, files in os.walk(index_folder):
+        for file in files:
+            if file.endswith('.txt'):
+                file_path = os.path.join(root, file)
+                subfolder = os.path.basename(root)
+                index_name = f"{subfolder}_{os.path.splitext(file)[0]}"
+                with open(file_path, 'r') as f:
+                    content = f.read()
+                    indices = [int(idx.strip()) for idx in content.strip().split(',') if idx.strip().isdigit()]
+                index_data[index_name] = indices
+    return index_data
+
+def calculate_rdf(task):
+    """
+    RDFを計算する関数（並列処理用）。
+    """
+    ref_key, tgt_key, ref_indices, tgt_indices, topfile, trajfile, nbins, r_range = task
+
+    # 並列処理対応のため、この関数内でUniverseを再構築
+    universe = mda.Universe(topfile, trajfile, format='LAMMPSDUMP')
+
+    # インデックスからAtomGroupを取得
+    ref_atoms = universe.select_atoms(f"index {' '.join(map(str, ref_indices))}")
+    tgt_atoms = universe.select_atoms(f"index {' '.join(map(str, tgt_indices))}")
+
+    # 同一分子内の原子を除外（分子間RDFを解析したい場合に有効）
+    if ref_key == tgt_key:
+        # ref_atomsが属するresidを抽出し、そのresidの原子をターゲットから除外
+        ref_resids = {resid for resid in ref_atoms.residues.resids}
+        if ref_resids:
+            resid_str = ' '.join(map(str, ref_resids))
+            tgt_atoms = tgt_atoms.select_atoms(f"not resid {resid_str}")
+
+    # チェック: tgt_atomsが空の場合はスキップ
+    if len(tgt_atoms) == 0:
+        print(f"Skipping RDF calculation for {ref_key} and {tgt_key}: no valid target atoms.")
+        return ref_key, tgt_key, [], []
+
+    # RDFの計算
+    print(f"Processing RDF: {ref_key} to {tgt_key}")
+    print(f"  Number of ref_atoms: {len(ref_atoms)}")
+    print(f"  Number of tgt_atoms (after exclusion): {len(tgt_atoms)}")
+    
+    rdf = InterRDF_s(ref_atoms, tgt_atoms, nbins=nbins, range=r_range)
+    rdf.run()
+
+    return ref_key, tgt_key, rdf.bins, rdf.rdf
+
+def process_and_save_results(results, writer):
+    """
+    RDF計算結果を処理し、エクセルに保存する。
+    同じリファレンスキーのデータを1つのシートにまとめる。
+    """
+    sheets_data = {}
+
+    # 結果をリファレンスキーごとにまとめる
+    for ref_key, tgt_key, bins, rdf_values in results:
+        if not bins:  # binsが空の場合はスキップ
+            print(f"Skipping output for {ref_key} to {tgt_key} (no valid data).")
+            continue
+
+        if ref_key not in sheets_data:
+            sheets_data[ref_key] = {"Distance (Å)": bins}
+        sheets_data[ref_key][f"{ref_key} to {tgt_key}"] = rdf_values
+
+    # エクセルシートに書き込み
+    for ref_key, data in sheets_data.items():
+        df = pd.DataFrame(data)
+        sheet_name = f"{ref_key.replace('index_', '')}"[:31]  # シート名は31文字以内
+        df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+
+if __name__ == "__main__":
+    main()
